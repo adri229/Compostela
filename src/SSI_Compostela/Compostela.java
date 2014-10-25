@@ -1,54 +1,74 @@
 package SSI_Compostela;
 
-import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.security.*;
-import java.security.spec.*;
-import java.util.HashMap;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.security.InvalidKeyException;
+import java.security.KeyFactory;
+import java.security.KeyPair;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.Security;
+import java.security.Signature;
+import java.security.SignatureException;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Vector;
 
-import javax.crypto.*;
-import javax.crypto.interfaces.*;
-import javax.crypto.spec.*;
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.KeyGenerator;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.DESKeySpec;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.util.encoders.Base64;
 
 public class Compostela {
 
 	public static void main(String[] args) {
-		/*
-		 * Peregrino p = new Peregrino(....); Albergue a1 = new Albergue();
-		 * Albergue a2 = new Albergue(); Oficina o = new Oficina(...); Paquete
-		 * compostela = p.generarCompostela(o.getPublicKey());
-		 */
 		
 		Peregrino pilgrim = new Peregrino("adrian", "fernandez", "44478888Q", "22/10/2014", "Camelias", "religion", "Peregrino.publica", "Peregrino.privada");
 		Albergue hostel1 = new Albergue("1", "23/10/1014", "valenzana", "n/a", "Albergue1.publica", "Albergue1.privada");
-		Albergue hostel2 = new Albergue("1", "24/10/1014", "lagunas", "n/a", "Albergue2.publica", "Albergue2.privada");
+		Albergue hostel2 = new Albergue("2", "24/10/1014", "lagunas", "n/a", "Albergue2.publica", "Albergue2.privada");
 		Oficina oficina = new Oficina("Oficina.publica", "Oficina.privada");
 		Vector<String> idAlbergue = new Vector<String>();
 		idAlbergue.add("1");
 		idAlbergue.add("2");
-		Map<String,PublicKey> publicKeys = new HashMap<String,PublicKey>(); 
+		Map<String,PublicKey> publicKeys = new LinkedHashMap<String,PublicKey>(); 
 		publicKeys.put("1", hostel1.getPublicKey());
 		publicKeys.put("2", hostel2.getPublicKey());
 		Paquete paquete = pilgrim.generarCompostela(pilgrim.getPublicKey());
 		paquete = hostel1.sellarCompostela(paquete, oficina.getPublicKey());
 		paquete = hostel2.sellarCompostela(paquete, oficina.getPublicKey());
 		oficina.desempaquetarCompostela(paquete, idAlbergue, pilgrim.getPublicKey(), publicKeys);
+
 	}
 
 }
 
-class Participante {
+class Participante{
+	
 	protected PublicKey publicKey;
 	protected PrivateKey privateKey;
+	protected KeyPair keypair;
 	protected File publicKeyFile;
 	protected File privateKeyFile;
 
@@ -56,11 +76,11 @@ class Participante {
 		this.privateKeyFile = new File(pathClavePrivada);
 		this.publicKeyFile = new File(pathClavePublica);
 		loadKeys();
+		keypair = new KeyPair(this.publicKey,this.privateKey);
 	}
 
 	protected void loadKeys() {
-		Security.addProvider(new BouncyCastleProvider()); // Cargar el provider
-															// BC
+		Security.addProvider(new BouncyCastleProvider()); 
 		try {
 			KeyFactory keyFactoryRSA = KeyFactory.getInstance("RSA", "BC");
 			/*** 2 Recuperar clave Privada del fichero */
@@ -72,8 +92,7 @@ class Participante {
 
 			// 2.2 Recuperar clave privada desde datos codificados en formato
 			// PKCS8
-			PKCS8EncodedKeySpec clavePrivadaSpec = new PKCS8EncodedKeySpec(
-					bufferPriv);
+			PKCS8EncodedKeySpec clavePrivadaSpec = new PKCS8EncodedKeySpec(bufferPriv);
 			this.privateKey = keyFactoryRSA.generatePrivate(clavePrivadaSpec);
 
 			/*** 4 Recuperar clave PUBLICA del fichero */
@@ -85,8 +104,7 @@ class Participante {
 
 			// 4.2 Recuperar clave publica desde datos codificados en formato
 			// X509
-			X509EncodedKeySpec clavePublicaSpec = new X509EncodedKeySpec(
-					bufferPub);
+			X509EncodedKeySpec clavePublicaSpec = new X509EncodedKeySpec(bufferPub);
 			this.publicKey = keyFactoryRSA.generatePublic(clavePublicaSpec);
 
 		} catch (NoSuchAlgorithmException | NoSuchProviderException e) {
@@ -100,7 +118,7 @@ class Participante {
 		}
 
 	}
-
+	
 	protected SecretKey createSecretKey() {
 		KeyGenerator generadorDES;
 		SecretKey secretKey = null;
@@ -114,15 +132,13 @@ class Participante {
 		}
 		return secretKey;
 	}
-
-	protected Bloque cipherData(String name, byte[] bytes, SecretKey secretKey) {
+	
+	protected byte[] cipherData(byte[] bytes, SecretKey secretKey) {
 		byte[] bufferCifrado = null;
 		try {
 			Cipher cifrador = Cipher.getInstance("DES", "BC");
 			cifrador.init(Cipher.ENCRYPT_MODE, secretKey);
-			System.out.println("Cifrar con clave secreta");
 			bufferCifrado = cifrador.doFinal(bytes);
-			System.out.println("TEXTO CIFRADO");
 		} catch (NoSuchAlgorithmException | NoSuchProviderException
 				| NoSuchPaddingException e) {
 			System.out.println("Error en el cifrado " + e.getMessage());
@@ -133,20 +149,16 @@ class Participante {
 		} catch (InvalidKeyException e) {
 			System.out.println("Error en el cifrado " + e.getMessage());
 		}
-		return new Bloque(name, bufferCifrado);
+		return bufferCifrado;
 	}
-
-	protected Bloque cipherSecretKey(PublicKey clavePublica, SecretKey secretKey) {
-		// Oficina oficina = new Oficina();
+	
+	protected byte[] cipherSecretKey(PublicKey clavePublica, SecretKey secretKey) {
 		byte[] bufferCifrado = null;
 		Cipher cipher;
 		try {
 			cipher = Cipher.getInstance("RSA", "BC");
-			cipher.init(Cipher.ENCRYPT_MODE, clavePublica); // Cifra con la
-															// clave publica
-			System.out.println("3a. Cifrar con clave publica");
+			cipher.init(Cipher.ENCRYPT_MODE, clavePublica); 
 			bufferCifrado = cipher.doFinal(secretKey.getEncoded());
-			System.out.println("TEXTO CIFRADO");
 		} catch (NoSuchAlgorithmException | NoSuchProviderException
 				| NoSuchPaddingException e) {
 			System.out.println("Error en el cifrado " + e.getMessage());
@@ -157,7 +169,7 @@ class Participante {
 		} catch (InvalidKeyException e) {
 			System.out.println("Error en el cifrado " + e.getMessage());
 		}
-		return new Bloque("secretKey", bufferCifrado);
+		return bufferCifrado;
 	}
 
 	public PublicKey getPublicKey() {
@@ -165,134 +177,58 @@ class Participante {
 	}
 }
 
-// Genera compostela
-class Peregrino extends Participante {
-
-	private String name;
-	private String surname;
-	private String DNI;
-	private String date;
-	private String address;
-	private String motivations;
+class Peregrino extends Participante{
+	
+	private Map<String,String> data;
+	private Utils json;
+	private String dataJson;
+	private byte[] dataJsonBytes;
 	private SecretKey secretKey;
-	byte[] nameBytes = null;
-	byte[] surnameBytes = null;
-	byte[] DNIBytes = null;
-	byte[] dateBytes = null;
-	byte[] addressBytes = null;
-	byte[] motivationsBytes = null;
-
-	public Peregrino(String name, String surname, String DNI, String date,
+	private byte[] dataEncrypted;
+		
+	Peregrino(String name, String surname, String DNI, String date,
 			String address, String motivations, String publicKeyFile,
-			String privateKeyFile) {
+			String privateKeyFile){
+		
 		super(publicKeyFile, privateKeyFile);
-		this.name = name;
-		this.surname = surname;
-		this.DNI = DNI;
-		this.date = date;
-		this.address = address;
-		this.motivations = motivations;
-		this.publicKeyFile = new File(publicKeyFile);
-		this.privateKeyFile = new File(privateKeyFile);
+		data = new LinkedHashMap<String,String>();
+		json = new Utils();
+		data.put("name", name);
+		data.put("surname", surname);
+		data.put("DNI", DNI);
+		data.put("date", date);
+		data.put("motivations", motivations);
+		dataJson = json.map2json(data);
+		dataJsonBytes = dataJson.getBytes();
 		this.secretKey = createSecretKey();
-		nameBytes = name.getBytes();
-		surnameBytes = surname.getBytes();
-		DNIBytes = DNI.getBytes();
-		dateBytes = date.getBytes();
-		addressBytes = address.getBytes();
-		motivationsBytes = motivations.getBytes();
-
+		dataEncrypted = this.cipherData(dataJsonBytes, secretKey);
+		
+		
 	}
-
-	public String getName() {
-		return name;
-	}
-
-	public void setName(String name) {
-		this.name = name;
-	}
-
-	public String getSurname() {
-		return surname;
-	}
-
-	public void setSurname(String surname) {
-		this.surname = surname;
-	}
-
-	public String getDNI() {
-		return DNI;
-	}
-
-	public void setDNI(String dNI) {
-		DNI = dNI;
-	}
-
+	
 	public Paquete generarCompostela(PublicKey publicaOficina) {
 		// Cifrar datos
-		Paquete paquete = new Paquete();
-		paquete.anadirBloque("PILGRIM"+"name",cipherData("name", nameBytes, this.secretKey));
-		paquete.anadirBloque("PILGRIM"+"surname",cipherData("surname", surnameBytes, this.secretKey));
-		paquete.anadirBloque("PILGRIM"+"DNI", cipherData("DNI", DNIBytes, this.secretKey));
-		paquete.anadirBloque("PILGRIM"+"date",cipherData("date", dateBytes, this.secretKey));
-		paquete.anadirBloque("PILGRIM"+"address",cipherData("address", addressBytes, this.secretKey));
-		paquete.anadirBloque("PILGRIM"+"motivations",cipherData("motivations", motivationsBytes, this.secretKey));
 		
-		System.out.println("motiv pilgrim: "+new String(motivationsBytes));
+		Paquete paquete = new Paquete();
+		paquete.anadirBloque("PILGRIM"+"data", new Bloque("dataCipherPilgrim", dataEncrypted));
+		
 		// Cifrar Clave Secreta
-
-		paquete.anadirBloque("PILGRIM"+"secretKey",cipherSecretKey(publicaOficina, secretKey));
+		paquete.anadirBloque("PILGRIM"+"secretKey",new Bloque("secretKeyPilgrim",this.cipherSecretKey(publicaOficina, secretKey)));
 
 		// Firmar
 		paquete.anadirBloque("PILGRIM"+"signature", signatureData());
-
+		
+		
 		return paquete;
 	}
-
-	/*
-	 * private Bloque cipherData(String name, byte[] bytes){ byte[]
-	 * bufferCifrado=null; try { Cipher cifrador = Cipher.getInstance("DES",
-	 * "BC"); cifrador.init(Cipher.ENCRYPT_MODE, this.secretKey);
-	 * System.out.println("3a. Cifrar con clave publica"); bufferCifrado =
-	 * cifrador.doFinal(bytes); System.out.println("TEXTO CIFRADO"); } catch
-	 * (NoSuchAlgorithmException | NoSuchProviderException |
-	 * NoSuchPaddingException e) { System.out.println("Error en el cifrado " +
-	 * e.getMessage()); } catch (IllegalBlockSizeException e) {
-	 * System.out.println("Error en el cifrado " + e.getMessage()); } catch
-	 * (BadPaddingException e) { System.out.println("Error en el cifrado " +
-	 * e.getMessage()); } catch (InvalidKeyException e) {
-	 * System.out.println("Error en el cifrado " + e.getMessage()); } return new
-	 * Bloque(name,bufferCifrado); }
-	 */
-
-	/*
-	 * private Bloque cipherSecretKey(){ Oficina oficina = new Oficina(); byte[]
-	 * bufferCifrado=null; Cipher cipher; try { cipher =
-	 * Cipher.getInstance("RSA", "BC"); cipher.init(Cipher.ENCRYPT_MODE,
-	 * oficina.getPublicKey()); // Cifra con la clave publica
-	 * System.out.println("3a. Cifrar con clave publica"); bufferCifrado =
-	 * cipher.doFinal(this.secretKey.getEncoded());
-	 * System.out.println("TEXTO CIFRADO"); } catch (NoSuchAlgorithmException |
-	 * NoSuchProviderException | NoSuchPaddingException e) {
-	 * System.out.println("Error en el cifrado " + e.getMessage()); } catch
-	 * (IllegalBlockSizeException e) { System.out.println("Error en el cifrado "
-	 * + e.getMessage()); } catch (BadPaddingException e) {
-	 * System.out.println("Error en el cifrado " + e.getMessage()); } catch
-	 * (InvalidKeyException e) { System.out.println("Error en el cifrado " +
-	 * e.getMessage()); } return new Bloque("secretKey",bufferCifrado); }
-	 */
-
+	
 	private Bloque signatureData() {
 		byte[] sign = null;
 		try {
 			Signature signature = Signature.getInstance("MD5withRSA", "BC");
 			signature.initSign(privateKey);
-			signature.update(this.nameBytes);
-			signature.update(this.surnameBytes);
-			signature.update(this.DNIBytes);
-			signature.update(this.dateBytes);
-			signature.update(this.addressBytes);
-			signature.update(this.motivationsBytes);
+			signature.update(this.dataEncrypted);
+			
 			sign = signature.sign(); // FRAN
 		} catch (NoSuchAlgorithmException | NoSuchProviderException e) {
 			System.out.println("Error en la firma" + e.getMessage());
@@ -305,92 +241,38 @@ class Peregrino extends Participante {
 	}
 }
 
-class Date {
 
-	private int day;
-	private int month;
-	private int year;
-
-	public Date(int day, int month, int year) {
-		super();
-		this.day = day;
-		this.month = month;
-		this.year = year;
-	}
-
-	public int getDay() {
-		return day;
-	}
-
-	public void setDay(int day) {
-		this.day = day;
-	}
-
-	public int getMonth() {
-		return month;
-	}
-
-	public void setMonth(int month) {
-		this.month = month;
-	}
-
-	public int getYear() {
-		return year;
-	}
-
-	public void setYear(int year) {
-		this.year = year;
-	}
-}
-
-// Sella compostela
-class Albergue extends Participante {
-	String idAlbergue;
-	String dateAlbergue;
-	String addressAlbergue;
-	String incidentsAlbergue;
-	byte[] summary;
-	byte[] id;
-	byte[] date;
-	byte[] address;
-	byte[] incidents;
-	byte[] sign;
+class Albergue extends Participante{
+	
+	private String idAlbergue;
+	private Map<String,String> data;
+	private Utils json;
+	private String dataAlbergueJson;
+	private byte[] dataAlbergueJsonBytes;
+	private byte[] dataAlbergueEncrypted;
 	private SecretKey secretKey;
-
-	Albergue(String idAlbergue, String dateAlbergue, String addressAlbergue,
-			String incidentsAlbergue, String publicKeyFile,
-			String privateKeyFile) {
+	
+	Albergue(String idAlbergue, String date, String address,String incidents,String publicKeyFile, String privateKeyFile){
 		super(publicKeyFile, privateKeyFile);
 		this.idAlbergue = idAlbergue;
-		this.dateAlbergue = dateAlbergue;
-		this.addressAlbergue = addressAlbergue;
-		this.incidentsAlbergue = incidentsAlbergue;
-		this.summary = null;
-		this.id = idAlbergue.getBytes();
-		this.date = dateAlbergue.getBytes();
-		this.address = addressAlbergue.getBytes();
-		this.incidents = incidentsAlbergue.getBytes();
-		this.sign = null;
-
-		this.secretKey = this.createSecretKey();
+		data = new LinkedHashMap<String,String>();
+		json = new Utils();
+		data.put("date", date);
+		data.put("address", address);
+		data.put("incidents", incidents);
+		dataAlbergueJson = json.map2json(data);
+		dataAlbergueJsonBytes = dataAlbergueJson.getBytes();
+		this.secretKey = createSecretKey();
+		dataAlbergueEncrypted = this.cipherData(dataAlbergueJsonBytes, secretKey);
 	}
-
+	
 	public Paquete sellarCompostela(Paquete paquete, PublicKey publicaOficina) {
 		this.addDataHosteltoPackage(paquete);
+		byte[] sign=null;
 		try {
 			MessageDigest messageDigest = MessageDigest.getInstance("MD5");
-			messageDigest.update(paquete.getBloque("PILGRIM"+"name").getContenido());
-			messageDigest.update(paquete.getBloque("PILGRIM"+"surname").getContenido());
-			messageDigest.update(paquete.getBloque("PILGRIM"+"DNI").getContenido());
-			messageDigest.update(paquete.getBloque("PILGRIM"+"date").getContenido());
-			messageDigest.update(paquete.getBloque("PILGRIM"+"address").getContenido());
-			messageDigest.update(paquete.getBloque("PILGRIM"+"motivations").getContenido());
-			messageDigest.update(paquete.getBloque("PILGRIM"+"secretKey").getContenido());
 			messageDigest.update(paquete.getBloque("PILGRIM"+"signature").getContenido());
-			messageDigest.update(id);
-			messageDigest.update(date);
-			messageDigest.update(address);
-			messageDigest.update(incidents);
+			messageDigest.update(dataAlbergueJsonBytes);
 			byte[] hash = messageDigest.digest();
 
 			Signature signature = Signature.getInstance("MD5withRSA", "BC");
@@ -407,96 +289,75 @@ class Albergue extends Participante {
 		} catch (SignatureException e) {
 			e.printStackTrace();
 		}
-		paquete.anadirBloque("ALBERGUE" + idAlbergue + "SECRET_KEY",
-				this.cipherSecretKey(publicaOficina, secretKey));
+		this.addDataHosteltoPackage(paquete);
+		paquete.anadirBloque("ALBERGUE" + idAlbergue + "SECRET_KEY", new Bloque("idAlbgSecretKey",
+				this.cipherSecretKey(publicaOficina, this.secretKey)));
 		paquete.anadirBloque("ALBERGUE" + idAlbergue + "SIGN", new Bloque(
 				"signAlbergue", sign));
 		return paquete;
 	}
 
 	private void addDataHosteltoPackage(Paquete paquete) {
-		paquete.anadirBloque("ALBERGUE" + idAlbergue + "ID",
-				this.cipherData("idAlbergue"+idAlbergue, this.id, this.secretKey));
-		paquete.anadirBloque("ALBERGUE_" + idAlbergue + "DATE",
-				this.cipherData("dateAlbergue"+idAlbergue, this.date, this.secretKey));
-		paquete.anadirBloque("ALBERGUE" + idAlbergue + "ADDRESS",
-				this.cipherData("addressAlbergue+idAlbergue", this.address, this.secretKey));
-		paquete.anadirBloque("ALBERGUE" + idAlbergue + "INCIDENTS",
-				this.cipherData("incidentesAlbergue+idAlbergue", this.incidents, this.secretKey));
 		
-		System.out.println("date albergue"+date);
+		paquete.anadirBloque("ALBERGUE"+this.idAlbergue+"DATA",new Bloque(this.idAlbergue+"DATA", this.dataAlbergueEncrypted));
 	}
 
+	
 }
 
-// Desempaqueta compostela
-class Oficina extends Participante {
-
-	Oficina(String publicKeyFile, String privateKeyFile) {
+class Oficina extends Participante{
+	
+	Utils json;
+	
+	Oficina(String publicKeyFile,String privateKeyFile){
 		super(publicKeyFile, privateKeyFile);
-
+		
+		json = new Utils();
 	}
-
+	
 	public void desempaquetarCompostela(Paquete paquete,
 			Vector<String> idAlbergue, PublicKey publicKeyPeregrino,
-			Map<String, PublicKey> publicKeysAlbergue) {
-		// Extraer firmas albergue por ID
-
-		byte[] secretKey = null;
-		byte[] date = null;
-		byte[] address = null;
-		byte[] incidents = null;
-		byte[] sign = null;
-		SecretKey secretKeyObject = null;
+			Map<String, PublicKey> publicKeysAlbergue){
 		
-		byte[] namePilgrim = paquete.getBloque("PILGRIM"+"name").getContenido();
-		byte[] surnamePilgrim = paquete.getBloque("PILGRIM"+"address").getContenido();
-		byte[] DNIPilgrim = paquete.getBloque("PILGRIM"+"DNI").getContenido();
-		byte[] datePilgrim = paquete.getBloque("PILGRIM"+"date").getContenido();
-		byte[] addressPilgrim = paquete.getBloque("PILGRIM"+"address").getContenido();
-		byte[] motivationsPilgrim = paquete.getBloque("PILGRIM"+"motivations").getContenido();
-		byte[] secretKeyPilgrim = paquete.getBloque("PILGRIM"+"secretKey").getContenido();
-		byte[] signPilgrim = paquete.getBloque("PILGRIM"+"signature").getContenido();
 		
-		for (int i = 0; i < idAlbergue.size(); i++) {
+		
+		//verificar firma ALbergue
+		SecretKey secretKeyAlbergue;
+		Signature signatureAlbergue;
+		String data;
+		byte[] skAlbergue;
+		byte[] signAlbergue;
+		byte[] dataAlbergue;
+		byte[] signaturePilgrim;
+		 
+		for (int i = 0; i < idAlbergue.size();i++){
 			String id = idAlbergue.get(i);
-			date = paquete.getBloque("ALBERGUE" + id + "DATE").getContenido();
-			address = paquete.getBloque("ALBERGUE" + id + "ADDRESS").getContenido();
-			incidents = paquete.getBloque("ALBERGUE" + id + "INCIDENTS").getContenido();
-			secretKey = paquete.getBloque("ALBERGUE" + id + "SECRET_KEY").getContenido();
-			sign = paquete.getBloque("ALBERGUE" + id + "SIGN").getContenido();
 			
+			dataAlbergue = paquete.getBloque("ALBERGUE"+id+"DATA").getContenido();
+			signAlbergue = paquete.getBloque("ALBERGUE" + id + "SIGN").getContenido();
+			skAlbergue = paquete.getBloque("ALBERGUE" + id + "SECRET_KEY").getContenido();
+			signaturePilgrim = paquete.getBloque("PILGRIM"+"signature").getContenido();
 			
-			
-			// Verificar firma Albergue
-			try {
+			try{
 				Signature signature = Signature.getInstance("MD5withRSA", "BC");
 				signature.initVerify(publicKeysAlbergue.get(id));
-				// signature.update(); Que datos se le pasan?
-				signature.update(namePilgrim);
-				signature.update(surnamePilgrim);
-				signature.update(DNIPilgrim);
-				signature.update(datePilgrim);
-				signature.update(addressPilgrim);
-				signature.update(motivationsPilgrim);
-				signature.update(secretKeyPilgrim);
-				signature.update(signPilgrim);
-				signature.update(date);
-				signature.update(address);
-				signature.update(incidents);
+				signature.update(signaturePilgrim);
+				signature.update(dataAlbergue);
+				boolean verifySign = signature.verify(signAlbergue);
 				
-				boolean verifySign = signature.verify(sign);
-				if (verifySign) {
+				if(verifySign){
 					System.out.println("Firma verificada");
-					// Desencriptar datos albergue
-					secretKeyObject = this.decryptSecretKey(secretKey);
-					System.out.println("Datos Albergue " + id);
-					System.out.println("Date: " + this.decrytpData(date, secretKeyObject));
-					System.out.println("Address: " + this.decrytpData(address, secretKeyObject));
-					System.out.println("Incidentes " + this.decrytpData(incidents, secretKeyObject));
+					secretKeyAlbergue = this.decryptSecretKey(skAlbergue);
+					data = new String(this.decrytpData(dataAlbergue, secretKeyAlbergue));
+					Map<String, String> datos2 = json.json2map(data);
+			        System.out.print("MAP: ");
+			        for (Map.Entry<String, String> entrada : datos2.entrySet()) {
+			            System.out.print(entrada.getKey() + "->" + entrada.getValue() + " ");
+			        }
 				} else {
-					System.out.println("Error, firma no valida");
+					System.out.println("Error, invalid signature of Hostel "+id);
 				}
+				
 			} catch (NoSuchAlgorithmException | NoSuchProviderException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -507,30 +368,24 @@ class Oficina extends Participante {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
+				
+			
 		}
-		//Verificar firma Peregrino
-		/*
-		byte[] namePilgrim = paquete.getBloque("PILGRIM"+"name").getContenido();
-		byte[] surnamePilgrim = paquete.getBloque("PILGRIM"+"address").getContenido();
-		byte[] DNIPilgrim = paquete.getBloque("PILGRIM"+"DNI").getContenido();
-		byte[] datePilgrim = paquete.getBloque("PILGRIM"+"date").getContenido();
-		byte[] addressPilgrim = paquete.getBloque("PILGRIM"+"adress").getContenido();
-		byte[] motivationsPilgrim = paquete.getBloque("PILGRIM"+"motivations").getContenido();
-		byte[] secretKeyPilgrim = paquete.getBloque("PILGRIM"+"secretKey").getContenido();
-		byte[] signPilgrim = paquete.getBloque("PILGRIM"+"sign").getContenido();
-		*/
-		SecretKey secretKeyObjectPilgrim = null;
-		boolean verifySignPilgrim = false;
+		
+		//Verificar firma peregrino
+		boolean verifySignPilgrim=false;
+		SecretKey secretKeyPilgrim;
+		
+		String dataPilgrim = null;
+		byte[] skPilgrim = paquete.getBloque("PILGRIM"+"secretKey").getContenido();
+		byte[] signPilgrim = paquete.getBloque("PILGRIM"+"signature").getContenido();
+		byte[] dataBytesPilgrim = paquete.getBloque("PILGRIM"+"data").getContenido();
+		
 		
 		try {
 			Signature signature = Signature.getInstance("MD5withRSA", "BC");
 			signature.initVerify(publicKeyPeregrino);
-			signature.update(namePilgrim);
-			signature.update(surnamePilgrim);
-			signature.update(DNIPilgrim);
-			signature.update(datePilgrim);
-			signature.update(addressPilgrim);
-			signature.update(motivationsPilgrim);
+			signature.update(dataBytesPilgrim);
 			verifySignPilgrim = signature.verify(signPilgrim);
 		} catch (InvalidKeyException e) {
 			System.out.println("Error, invalid key in verify sign of pilgrim");
@@ -543,17 +398,23 @@ class Oficina extends Participante {
 		}
 		
 		if(verifySignPilgrim){
-			//Desencriptar y mostrar datos peregrino
-			secretKeyObjectPilgrim = this.decryptSecretKey(secretKeyPilgrim);
-			System.out.println("Name: " + this.decrytpData(namePilgrim, secretKeyObjectPilgrim));
-			System.out.println("Surname: " + this.decrytpData(surnamePilgrim, secretKeyObjectPilgrim));
-			System.out.println("DNI: " + this.decrytpData(DNIPilgrim, secretKeyObjectPilgrim));
-			System.out.println("Date: " + this.decrytpData(datePilgrim, secretKeyObjectPilgrim));
-			System.out.println("Address: " + this.decrytpData(addressPilgrim, secretKeyObjectPilgrim));
-			System.out.println("Motivations: " + this.decrytpData(motivationsPilgrim, secretKeyObjectPilgrim));
+			System.out.println("Firma Pilgrim verificada");
+			secretKeyPilgrim = this.decryptSecretKey(skPilgrim);
+			
+			
+			
+			dataPilgrim = new String(this.decrytpData(dataBytesPilgrim, secretKeyPilgrim));
+			Map<String, String> datos2 = json.json2map(dataPilgrim);
+	        System.out.print("MAP: ");
+	        for (Map.Entry<String, String> entrada : datos2.entrySet()) {
+	            System.out.print(entrada.getKey() + "->" + entrada.getValue() + " ");
+	        }
+		} else{
+			System.out.println("Error, sign pilgrim not verificated");
 		}
+		
 	}
-
+	
 	private SecretKey decryptSecretKey(byte[] cipherSecretKey) {
 		byte[] buffer=null;
 		SecretKey secretKey = null;
@@ -587,27 +448,30 @@ class Oficina extends Participante {
 	
 	private byte[] decrytpData(byte[] data, SecretKey secretKey){
 		Cipher cipher;
+		byte[] toret=null;
+
+		
 		try {
 			cipher = Cipher.getInstance("DES/ECB/PKCS5Padding");
 			cipher.init(Cipher.DECRYPT_MODE, secretKey);
-			data = cipher.update(data);
+			toret = cipher.update(data);
+			toret = cipher.doFinal();
 		} catch (NoSuchAlgorithmException | NoSuchPaddingException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (InvalidKeyException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
+		} catch (IllegalBlockSizeException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (BadPaddingException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
 		}
-		return data;
+		return toret;
 	}
-
-	// recuperar clave secreta (ver AlmacenarClaves.java) descifrando con
-	// KR_oficina
-	// descifrar componentes del peregrino con esa clave secreta
-	// validar firma del peregrino con KU_peregrino
-
-	// Para cada albergue
-	// validar firma del albergue con KU_albergue
-
+	
+	
 }
- 
+
