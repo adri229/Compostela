@@ -272,7 +272,7 @@ class Albergue extends Participante{
 		try {
 			MessageDigest messageDigest = MessageDigest.getInstance("MD5");
 			messageDigest.update(paquete.getBloque("PILGRIM"+"signature").getContenido());
-			messageDigest.update(dataAlbergueJsonBytes);
+			messageDigest.update(dataAlbergueEncrypted);
 			byte[] hash = messageDigest.digest();
 
 			Signature signature = Signature.getInstance("MD5withRSA", "BC");
@@ -289,7 +289,6 @@ class Albergue extends Participante{
 		} catch (SignatureException e) {
 			e.printStackTrace();
 		}
-		this.addDataHosteltoPackage(paquete);
 		paquete.anadirBloque("ALBERGUE" + idAlbergue + "SECRET_KEY", new Bloque("idAlbgSecretKey",
 				this.cipherSecretKey(publicaOficina, this.secretKey)));
 		paquete.anadirBloque("ALBERGUE" + idAlbergue + "SIGN", new Bloque(
@@ -339,14 +338,18 @@ class Oficina extends Participante{
 			signaturePilgrim = paquete.getBloque("PILGRIM"+"signature").getContenido();
 			
 			try{
+				MessageDigest messageDigest = MessageDigest.getInstance("MD5");
+				messageDigest.update(paquete.getBloque("PILGRIM"+"signature").getContenido());
+				messageDigest.update(dataAlbergue);
+				byte[] hash = messageDigest.digest();
+				
 				Signature signature = Signature.getInstance("MD5withRSA", "BC");
 				signature.initVerify(publicKeysAlbergue.get(id));
-				signature.update(signaturePilgrim);
-				signature.update(dataAlbergue);
+				signature.update(hash);
 				boolean verifySign = signature.verify(signAlbergue);
 				
 				if(verifySign){
-					System.out.println("Firma verificada");
+					System.out.println("Firma verificada Albergue:" + id);
 					secretKeyAlbergue = this.decryptSecretKey(skAlbergue);
 					data = new String(this.decrytpData(dataAlbergue, secretKeyAlbergue));
 					Map<String, String> datos2 = json.json2map(data);
@@ -449,7 +452,7 @@ class Oficina extends Participante{
 	private byte[] decrytpData(byte[] data, SecretKey secretKey){
 		Cipher cipher;
 		byte[] toret=null;
-
+		
 		
 		try {
 			cipher = Cipher.getInstance("DES/ECB/PKCS5Padding");
