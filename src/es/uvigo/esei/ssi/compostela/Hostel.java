@@ -1,7 +1,6 @@
 package es.uvigo.esei.ssi.compostela;
 
 import java.security.InvalidKeyException;
-import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.PublicKey;
@@ -94,14 +93,16 @@ public class Hostel extends Member {
 	private byte[] signatureData(byte[] signPilgrim) {
 		byte[] sign=null;
 		try {
+			/*
 			MessageDigest messageDigest = MessageDigest.getInstance(Member.hashingAlgorithm);
 			messageDigest.update(signPilgrim);
 			messageDigest.update(dataEncrypted);
 			byte[] hash = messageDigest.digest();
-
+*/	
 			Signature signature = Signature.getInstance(Member.signatureAlgorithm, Member.provider);
 			signature.initSign(this.privateKey);
-			signature.update(hash);
+			signature.update(signPilgrim);
+			signature.update(this.dataEncrypted);
 			sign = signature.sign();
 
 		} catch (NoSuchAlgorithmException | NoSuchProviderException 

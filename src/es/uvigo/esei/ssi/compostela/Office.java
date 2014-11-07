@@ -1,7 +1,6 @@
 package es.uvigo.esei.ssi.compostela;
 
 import java.security.InvalidKeyException;
-import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.PublicKey;
@@ -109,14 +108,10 @@ public class Office extends Member {
 	private boolean verifySignHostel(PublicKey publicKey){
 		boolean verifySign = false;
 		try{
-			MessageDigest messageDigest = MessageDigest.getInstance(Member.hashingAlgorithm);
-			messageDigest.update(this.signPilgrim);
-			messageDigest.update(this.dataHostel);
-			byte[] hash = messageDigest.digest();
-			
 			Signature signature = Signature.getInstance(Member.signatureAlgorithm, Member.provider);
 			signature.initVerify(publicKey);
-			signature.update(hash);
+			signature.update(this.signPilgrim);
+			signature.update(this.dataHostel);
 			verifySign = signature.verify(this.signHostel);
 		}  catch (NoSuchAlgorithmException | NoSuchProviderException | 
 				InvalidKeyException | SignatureException e) {
@@ -134,14 +129,10 @@ public class Office extends Member {
 	 */
 	private boolean verifySignPilgrim(PublicKey publicKey){
 		boolean verifySign = false;
-		try{	
-			MessageDigest messageDigest = MessageDigest.getInstance(Member.hashingAlgorithm);
-			messageDigest.update(this.dataPilgrim);
-			byte[] hash = messageDigest.digest();
-			
+		try{
 			Signature signature = Signature.getInstance(Member.signatureAlgorithm,Member.provider);
 			signature.initVerify(publicKey);
-			signature.update(hash);
+			signature.update(this.dataPilgrim);
 			verifySign = signature.verify(this.signPilgrim);
 		}  catch (NoSuchAlgorithmException | NoSuchProviderException |
 				InvalidKeyException | SignatureException e) {

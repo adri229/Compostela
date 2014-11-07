@@ -1,7 +1,6 @@
 package es.uvigo.esei.ssi.compostela;
 
 import java.security.InvalidKeyException;
-import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.PublicKey;
@@ -81,13 +80,9 @@ public class Pilgrim extends Member {
 	private byte[] signatureData() {
 		byte[] sign = null;
 		try {
-			MessageDigest messageDigest = MessageDigest.getInstance(Member.hashingAlgorithm);
-			messageDigest.update(dataEncrypted);
-			byte[] hash = messageDigest.digest();
-			
 			Signature signature = Signature.getInstance(Member.signatureAlgorithm, Member.provider);
 			signature.initSign(privateKey);
-			signature.update(hash);
+			signature.update(this.dataEncrypted);
 			sign = signature.sign();
 		} catch (InvalidKeyException | SignatureException |
 			NoSuchAlgorithmException | NoSuchProviderException e) {
